@@ -20,7 +20,6 @@ RUN cargo build --release
 FROM alpine:latest
 RUN apk add --no-cache ffmpeg youtube-dl openssl
 WORKDIR /app
-COPY --from=builder /app/.env .
 COPY --from=builder /app/target/release/rmusicbot .
 
 CMD ["./rmusicbot"]

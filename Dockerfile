@@ -9,9 +9,9 @@ COPY . .
 RUN cargo build --release
 
 # Runtime Stage
-FROM alpine:latest
+FROM ubuntu:latest
 
-RUN apk add --no-cache ffmpeg youtube-dl openssl
+RUN apt-get update -qq && apt-get install -y ffmpeg youtube-dl openssl
 WORKDIR /app
 COPY --from=builder /app/target/release/rmusicbot .
 

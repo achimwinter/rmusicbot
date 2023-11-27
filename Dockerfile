@@ -1,23 +1,16 @@
-FROM rust:1.74-alpine as builder
+# Builder stage
+FROM rust as builder
 
-RUN apk add --update \
-    alpine-sdk \
-    ffmpeg \
-    youtube-dl \
-    pkgconfig \
-    cmake \
-    openssl-dev \
-    musl-dev \
-    openssl
+RUN apt-get -qq update && apt-get install -y \
+    cmake
 
 WORKDIR /app
-
 COPY . .
-
 RUN cargo build --release
 
-
+# Runtime Stage
 FROM alpine:latest
+
 RUN apk add --no-cache ffmpeg youtube-dl openssl
 WORKDIR /app
 COPY --from=builder /app/target/release/rmusicbot .

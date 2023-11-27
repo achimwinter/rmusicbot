@@ -29,7 +29,6 @@ pub async fn help(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult
                         "general" => {
                             vec![
                                 ("help", "Displays this help menu", true),
-                                ("roll", "Selects a random number from a given range", true),
                             ]
                         }
 

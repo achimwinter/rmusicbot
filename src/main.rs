@@ -71,8 +71,6 @@ struct General;
 
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv().unwrap();
-
     let token = env::var("DISCORD_TOKEN").expect("Set your DISCORD_TOKEN environment variable!");
     let prefix = env::var("PREFIX").expect("Set your PREFIX environment variable!");
 

@@ -8,6 +8,13 @@ RUN apt-get -qq update && apt-get install -y \
 
 WORKDIR /app
 COPY . .
+
+# Pre compile dependecies so that docker has a chance to cache?
+RUN mv src/main.rs src/lib.rs
+RUN cargo build --release --no-default-features
+RUN mv src/lib.rs src/main.rs
+
+# Build the project itself
 RUN cargo build --release --no-default-features
 
 # Runtime Stage

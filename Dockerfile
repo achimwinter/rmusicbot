@@ -20,7 +20,7 @@ RUN cargo build --release --no-default-features
 # Runtime Stage
 FROM ubuntu:latest
 
-RUN apt-get update -qq && apt-get install -y ffmpeg youtube-dl openssl
+RUN apt-get update -qq && apt-get install -y ffmpeg yt-dlp openssl
 WORKDIR /app
 COPY --from=builder /app/target/release/rmusicbot .
 

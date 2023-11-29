@@ -126,7 +126,7 @@ async fn search_and_play_single_track(
         Ok(source) => source,
         Err(why) => {
             error!("Error starting source: {:?}", why);
-            send_error_message(&ctx.http, msg.channel_id, "Error adding song to playlist").await?;
+            send_error_message(&ctx.http, msg.channel_id, "Error playing song").await?;
             return Ok(());
         }
     };
@@ -285,7 +285,7 @@ async fn play_live_stream(
             send_error_message(
                 &ctx.http,
                 msg.channel_id,
-                "Error adding live stream to playlist",
+                "Error adding live stream to Queue",
             )
             .await?;
         }
@@ -335,7 +335,7 @@ async fn play_direct_link(
         }
         Err(why) => {
             error!("Error starting source: {:?}", why);
-            send_error_message(&ctx.http, msg.channel_id, "Error adding song to playlist").await?;
+            send_error_message(&ctx.http, msg.channel_id, "Error adding song to Queue").await?;
         }
     }
 

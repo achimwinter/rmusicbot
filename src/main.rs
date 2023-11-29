@@ -69,8 +69,21 @@ async fn before(_: &Context, msg: &Message, command_name: &str) -> bool {
 #[commands(help, leave, play, pause, resume, clear, skip, stop, nowplaying)]
 struct General;
 
+#[cfg(feature = "development")]
+fn init_env() {
+    dotenv::dotenv().ok();
+    println!("Running in development mode. Dotenv loaded.");
+}
+
+#[cfg(not(feature = "development"))]
+fn init_env() {
+    println!("Running in production mode. Using system environment variables.");
+}
+
 #[tokio::main]
 async fn main() {
+    init_env();
+
     let token = env::var("DISCORD_TOKEN").expect("Set your DISCORD_TOKEN environment variable!");
     let prefix = env::var("PREFIX").expect("Set your PREFIX environment variable!");
 

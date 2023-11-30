@@ -29,12 +29,14 @@ FROM ubuntu:latest
 
 RUN apt-get update -qq && apt-get install -y ffmpeg openssl wget
 
-RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
+WORKDIR /app
+
+# CHeck if x86 or arm
+RUN wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64
 RUN mv yt-dlp_linux yt-dlp
 RUN chmod +x yt-dlp
 RUN export PATH="/app:$PATH"
 
-WORKDIR /app
 COPY --from=builder /app/target/release/rmusicbot .
 
 CMD ["./rmusicbot"]

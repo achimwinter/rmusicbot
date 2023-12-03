@@ -1,11 +1,9 @@
-use std::sync::Arc;
-
+use serenity::client::Context;
 use serenity::framework::standard::CommandResult;
 use serenity::http::Http;
+use serenity::model::Timestamp;
 use serenity::model::channel::Message;
-use serenity::model::prelude::*;
-use serenity::prelude::*;
-use songbird::Songbird;
+use serenity::model::id::{ChannelId, GuildId};
 
 pub fn to_time(secs: u64) -> String {
     let sec = (secs % 60) as u8;
@@ -25,10 +23,6 @@ pub async fn get_guild_id_from_message(
     msg.guild(&ctx.cache)
         .map(|guild| Ok(guild.id))
         .unwrap_or_else(|| Err("Guild not found"))
-}
-
-pub async fn get_songbird_manager(ctx: &Context) -> Result<Arc<Songbird>, &'static str> {
-    songbird::get(ctx).await.ok_or("Songbird client missing")
 }
 
 pub async fn send_success_message(

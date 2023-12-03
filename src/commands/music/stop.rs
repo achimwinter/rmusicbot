@@ -1,7 +1,6 @@
-use serenity::framework::standard::macros::command;
+use serenity::model::channel::Message;
+use serenity::{framework::standard::macros::command, client::Context};
 use serenity::framework::standard::CommandResult;
-use serenity::model::prelude::*;
-use serenity::prelude::*;
 
 use crate::commands::utils::{send_error_message, send_success_message};
 

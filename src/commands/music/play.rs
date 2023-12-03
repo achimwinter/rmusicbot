@@ -1,14 +1,19 @@
 use regex::Regex;
 use serenity::framework::standard::macros::command;
 use serenity::framework::standard::{Args, CommandResult};
+use serenity::futures::future::OkInto;
 use serenity::model::prelude::*;
-use serenity::prelude::*;
-use songbird::input::Restartable;
-use songbird::Call;
+use serenity::{prelude::*, async_trait};
+
+use serenity::Result as SerenityResult;
+use songbird::input::YoutubeDl;
+use songbird::{Call, TrackEvent, EventContext};
 use tokio::process::Command as TokioCommand;
 use tracing::error;
+use songbird::events::{Event, EventHandler as VoiceEventHandler};
 
 use crate::commands::utils::send_error_message;
+
 
 #[command]
 #[aliases(p)]
@@ -44,7 +49,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     };
 
     if manager.get(guild_id).is_none() {
-        if let Err(_) = join_channel_if_needed(&ctx, msg, guild_id).await {
+        if let Err(_) = join_channel_if_needed(&ctx, msg).await {
             send_error_message(&ctx.http, msg.channel_id, "Error joining the voice channel")
                 .await?;
             return Ok(());
@@ -56,7 +61,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 
         if !url.starts_with("http") {
             search_and_play_single_track(ctx, msg, &mut handler, &url).await?;
-        } else if url.contains("index") {
+        } else if url.contains("index") || url.contains("list") {
             play_playlist(ctx, msg, &mut handler, &url).await?;
         } else if url.contains("live") {
             play_live_stream(ctx, msg, &mut handler, &url).await?;
@@ -78,41 +83,68 @@ async fn get_guild_id(msg: &Message, ctx: &Context) -> Result<GuildId, &'static 
         .ok_or("Guild not found")
 }
 
-async fn join_channel_if_needed(ctx: &Context, msg: &Message, guild_id: GuildId) -> CommandResult {
-    let guild = match msg.guild(&ctx.cache) {
-        Some(guild) => guild,
-        None => {
-            return Err("Guild not found".into());
-        }
+// async fn handle_track_end(ctx: &Context, guild_id: GuildId) {
+//     let manager = get_songbird_manager(ctx).await.unwrap();
+
+//     if let Some(handler_lock) = manager.get(guild_id) {
+//         let mut handler = handler_lock.lock().await;
+//         if handler.queue().is_empty() {
+//             leave();
+//         }
+//     }
+
+// }
+
+async fn join_channel_if_needed(ctx: &Context, msg: &Message) -> CommandResult {
+    let (guild_id, channel_id) = {
+        let guild = msg.guild(&ctx.cache).unwrap();
+        let channel_id = guild
+            .voice_states
+            .get(&msg.author.id)
+            .and_then(|voice_state| voice_state.channel_id);
+
+        (guild.id, channel_id)
     };
 
-    let channel_id = match guild
-        .voice_states
-        .get(&msg.author.id)
-        .and_then(|voice_state| voice_state.channel_id)
-    {
+    let manager = songbird::get(ctx)
+        .await
+        .expect("Songbird Voice client placed in at initialisation.")
+        .clone();
+
+    let connect_to = match channel_id {
         Some(channel) => channel,
         None => {
-            send_error_message(&ctx.http, msg.channel_id, "Join a voice channel first!").await?;
+            check_msg(msg.reply(ctx, "Not in a voice channel").await);
+
             return Ok(());
-        }
+        },
     };
 
-    let manager = match songbird::get(ctx).await {
-        Some(manager) => manager,
-        None => {
-            send_error_message(&ctx.http, msg.channel_id, "Songbird client missing").await?;
-            return Ok(());
+    if let Ok(handler_lock) = manager.join(guild_id, connect_to).await {
+        // Attach an event handler to see notifications of all track errors.
+        let mut handler = handler_lock.lock().await;
+        handler.add_global_event(TrackEvent::Error.into(), TrackErrorNotifier);
+    }
+
+    Ok(())
+}
+
+struct TrackErrorNotifier;
+
+#[async_trait]
+impl VoiceEventHandler for TrackErrorNotifier {
+    async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
+        if let EventContext::Track(track_list) = ctx {
+            for (state, handle) in *track_list {
+                println!(
+                    "Track {:?} encountered an error: {:?}",
+                    handle.uuid(),
+                    state.playing
+                );
+            }
         }
-    };
 
-    let (_, success) = manager.join(guild_id, channel_id).await;
-
-    if success.is_ok() {
-        Ok(())
-    } else {
-        send_error_message(&ctx.http, msg.channel_id, "Error joining the voice channel").await?;
-        Err("Error joining the voice channel".into())
+        None
     }
 }
 
@@ -122,16 +154,24 @@ async fn search_and_play_single_track(
     handler: &mut Call,
     query: &str,
 ) -> CommandResult {
-    let source = match songbird::input::ytdl_search(query).await {
-        Ok(source) => source,
-        Err(why) => {
-            error!("Error starting source: {:?}", why);
-            send_error_message(&ctx.http, msg.channel_id, "Error playing song").await?;
-            return Ok(());
-        }
+    let raw_search_output = TokioCommand::new("yt-dlp")
+        .args(["ytsearch", query])
+        .output()
+        .await;
+
+    let output_string = String::from_utf8(raw_search_output.unwrap().stdout);
+    let url = output_string.unwrap();
+
+    let http_client = {
+        let data = ctx.data.read().await;
+        data.get::<HttpKey>()
+        .cloned()
+        .expect("Should exist in typemap")
     };
 
-    let song = handler.enqueue_source(source);
+    YoutubeDl::new(&ctx.http, url);
+
+    let song = handler.enqueue(output_string);
     let metadata = song.metadata();
 
     let title = metadata
@@ -206,7 +246,7 @@ async fn play_playlist(
     for track_url in track_urls.iter().cloned() {
         match Restartable::ytdl(track_url, true).await {
             Ok(source) => {
-                handler.enqueue_source(source.into());
+                handler.enqueue(source.into());
             }
             Err(why) => {
                 error!("Error starting source: {:?}", why);
@@ -251,7 +291,7 @@ async fn play_live_stream(
 
     match Restartable::ytdl(url, true).await {
         Ok(source) => {
-            let song = handler.enqueue_source(source.into());
+            let song = handler.enqueue(source.into());
             let metadata = song.metadata();
 
             let title = metadata
@@ -304,8 +344,10 @@ async fn play_direct_link(
 
     match Restartable::ytdl(url, true).await {
         Ok(source) => {
-            let song = handler.enqueue_source(source.into());
+            let song = handler.enqueue_input(source.into());
             let metadata = song.metadata();
+
+            let _ = song.add
 
             let title = metadata
                 .title
@@ -340,4 +382,10 @@ async fn play_direct_link(
     }
 
     Ok(())
+}
+
+fn check_msg(result: SerenityResult<Message>) {
+    if let Err(why) = result {
+        println!("Error sending message {:?}", why)
+    }
 }

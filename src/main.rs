@@ -5,29 +5,36 @@ use std::env;
 use std::sync::Arc;
 
 use serenity::async_trait;
-use serenity::client::bridge::gateway::ShardManager;
 use serenity::framework::standard::macros::{group, hook};
-use serenity::framework::standard::StandardFramework;
+use serenity::framework::standard::{Configuration, StandardFramework};
+use serenity::gateway::{ActivityData, ShardManager};
 use serenity::http::Http;
 use serenity::model::channel::Message;
 use serenity::model::event::ResumedEvent;
 use serenity::model::gateway::Ready;
-use serenity::model::prelude::Activity;
-use serenity::prelude::*;
-use tracing::{debug, error, info, instrument};
 
+use serenity::prelude::*;
 use songbird::SerenityInit;
+use tracing::{debug, info, instrument};
 
 use crate::commands::help::*;
 
 use crate::commands::music::clear::*;
 use crate::commands::music::leave::*;
-use crate::commands::music::nowplaying::*;
+
 use crate::commands::music::pause::*;
 use crate::commands::music::play::*;
 use crate::commands::music::resume::*;
 use crate::commands::music::skip::*;
 use crate::commands::music::stop::*;
+
+use reqwest::Client as HttpClient;
+
+struct HttpKey;
+
+impl TypeMapKey for HttpKey {
+    type Value = HttpClient;
+}
 
 pub struct ShardManagerContainer;
 
@@ -46,12 +53,12 @@ impl EventHandler for Handler {
         );
         let status =
             env::var("DISCORD_STATUS").expect("Set your DISCORD_STATUS environment variable!");
-        ctx.set_activity(Activity::playing(status)).await;
+        ctx.set_activity(Some(ActivityData::playing(status)));
     }
 
     #[instrument(skip(self, _ctx))]
     async fn resume(&self, _ctx: Context, resume: ResumedEvent) {
-        debug!("Resumed; trace: {:?}", resume.trace);
+        debug!("Resumed; trace: {:?}", resume)
     }
 }
 
@@ -66,7 +73,7 @@ async fn before(_: &Context, msg: &Message, command_name: &str) -> bool {
 }
 
 #[group]
-#[commands(help, leave, play, pause, resume, clear, skip, stop, nowplaying)]
+#[commands(help, leave, play, pause, resume, clear, skip, stop, current)]
 struct General;
 
 #[cfg(feature = "development")]
@@ -92,7 +99,7 @@ async fn main() {
     let (owners, _bot_id) = match http.get_current_application_info().await {
         Ok(info) => {
             let mut owners = HashSet::new();
-            owners.insert(info.owner.id);
+            owners.insert(info.owner.unwrap().id);
 
             (owners, info.id)
         }
@@ -102,9 +109,8 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let framework = StandardFramework::new()
-        .configure(|c| c.owners(owners).prefix(prefix))
-        .before(before)
         .group(&GENERAL_GROUP);
+    framework.configure(Configuration::new().prefix(prefix).owners(owners));
 
     let intents = GatewayIntents::non_privileged()
         | GatewayIntents::MESSAGE_CONTENT
@@ -112,27 +118,19 @@ async fn main() {
         | GatewayIntents::GUILD_VOICE_STATES;
 
     let mut client = Client::builder(&token, intents)
+        .event_handler(Handler)
         .framework(framework)
         .register_songbird()
-        .event_handler(Handler)
+        .type_map_insert::<HttpKey>(HttpClient::new())
         .await
         .expect("Err creating client");
 
-    {
-        let mut data = client.data.write().await;
-        data.insert::<ShardManagerContainer>(client.shard_manager.clone());
-    }
-
-    let shard_manager = client.shard_manager.clone();
 
     tokio::spawn(async move {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("Could not register ctrl+c handler");
-        shard_manager.lock().await.shutdown_all().await;
+        let _ = client.start().await.map_err(|why| println!("Client ended {:?}", why));
     });
 
-    if let Err(why) = client.start().await {
-        error!("Client error: {:?}", why);
-    }
+    let _signal_err = tokio::signal::ctrl_c().await;
+    println!("Received Ctrl-C, shutting down");
+
 }

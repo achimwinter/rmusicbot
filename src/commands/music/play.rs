@@ -98,7 +98,7 @@ async fn join_channel_if_needed(ctx: &Context, msg: &Message, guild_id: GuildId)
         }
     };
 
-    let manager = match songbird::get(ctx).await {
+    let manager = match songbird::get(&ctx).await {
         Some(manager) => manager,
         None => {
             send_error_message(&ctx.http, msg.channel_id, "Songbird client missing").await?;

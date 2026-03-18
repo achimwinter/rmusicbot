@@ -109,17 +109,11 @@ async fn join_channel_if_needed(ctx: &Context, msg: &Message) -> CommandResult {
         Some(channel) => channel,
         None => {
             check_msg(msg.reply(ctx, "Not in a voice channel").await);
-
-    let manager = match songbird::get(&ctx).await {
-        Some(manager) => manager,
-        None => {
-            send_error_message(&ctx.http, msg.channel_id, "Songbird client missing").await?;
             return Ok(());
-        },
+        }
     };
 
     if let Ok(handler_lock) = manager.join(guild_id, connect_to).await {
-        // Attach an event handler to see notifications of all track errors.
         let mut handler = handler_lock.lock().await;
         handler.add_global_event(TrackEvent::Error.into(), TrackErrorNotifier);
     }

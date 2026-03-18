@@ -7,10 +7,11 @@ use crate::commands::utils::{send_error_message, send_success_message};
 #[command]
 #[only_in(guilds)]
 async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
-    let guild_id = match msg.guild(&ctx.cache) {
-        Some(guild) => guild.id,
+    let guild_id = msg.guild(&ctx.cache).map(|g| g.id);
+    let guild_id = match guild_id {
+        Some(id) => id,
         None => {
-            send_error_message(&ctx.http, msg.channel_id, "Guild not found.").await?;
+            send_error_message(ctx, msg, "Guild not found.").await?;
             return Ok(());
         }
     };
@@ -19,8 +20,8 @@ async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
         Some(manager) => manager,
         None => {
             send_error_message(
-                &ctx.http,
-                msg.channel_id,
+                ctx,
+                msg,
                 "Songbird Voice client not initialized.",
             )
             .await?;
@@ -33,9 +34,9 @@ async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
         let queue = handler.queue();
         queue.stop();
 
-        send_success_message(&ctx.http, msg.channel_id, ":stop_button: Playlist stopped!").await?;
+        send_success_message(ctx, msg, ":stop_button: Playlist stopped!").await?;
     } else {
-        send_error_message(&ctx.http, msg.channel_id, "Not in a voice channel.").await?;
+        send_error_message(ctx, msg, "Not in a voice channel.").await?;
     }
 
     Ok(())

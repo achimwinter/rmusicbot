@@ -21,7 +21,7 @@ use crate::commands::help::*;
 
 use crate::commands::music::clear::*;
 use crate::commands::music::leave::*;
-
+use crate::commands::music::current::*;
 use crate::commands::music::pause::*;
 use crate::commands::music::play::*;
 use crate::commands::music::resume::*;
@@ -30,7 +30,7 @@ use crate::commands::music::stop::*;
 
 use reqwest::Client as HttpClient;
 
-struct HttpKey;
+pub struct HttpKey;
 
 impl TypeMapKey for HttpKey {
     type Value = HttpClient;

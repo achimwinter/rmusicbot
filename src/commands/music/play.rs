@@ -1,18 +1,18 @@
+
 use regex::Regex;
 use serenity::framework::standard::macros::command;
 use serenity::framework::standard::{Args, CommandResult};
-use serenity::futures::future::OkInto;
 use serenity::model::prelude::*;
 use serenity::{prelude::*, async_trait};
 
 use serenity::Result as SerenityResult;
-use songbird::input::YoutubeDl;
+use songbird::input::{YoutubeDl};
 use songbird::{Call, TrackEvent, EventContext};
 use tokio::process::Command as TokioCommand;
-use tracing::error;
 use songbird::events::{Event, EventHandler as VoiceEventHandler};
 
-use crate::commands::utils::send_error_message;
+use crate::HttpKey;
+use crate::commands::utils::{send_error_message, send_success_message};
 
 
 #[command]
@@ -23,8 +23,8 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         Some(url) => url,
         None => {
             send_error_message(
-                &ctx.http,
-                msg.channel_id,
+                &ctx,
+                msg,
                 "Use the command like this: play <url> or <song name>",
             )
             .await?;
@@ -35,7 +35,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let guild_id = match get_guild_id(msg, ctx).await {
         Ok(id) => id,
         Err(_) => {
-            send_error_message(&ctx.http, msg.channel_id, "Guild not found").await?;
+            send_error_message(&ctx, msg, "Guild not found").await?;
             return Ok(());
         }
     };
@@ -43,14 +43,14 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     let manager = match songbird::get(ctx).await {
         Some(manager) => manager,
         None => {
-            send_error_message(&ctx.http, msg.channel_id, "Songbird client missing").await?;
+            send_error_message(&ctx, msg, "Songbird client missing").await?;
             return Ok(());
         }
     };
 
     if manager.get(guild_id).is_none() {
         if let Err(_) = join_channel_if_needed(&ctx, msg).await {
-            send_error_message(&ctx.http, msg.channel_id, "Error joining the voice channel")
+            send_error_message(&ctx, msg, "Error joining the voice channel")
                 .await?;
             return Ok(());
         }
@@ -74,7 +74,12 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
 }
 
 fn get_url_from_args(args: &Args) -> Option<String> {
-    args.clone().single::<String>().ok()
+    let input = args.rest().trim();
+    if input.is_empty() {
+        None
+    } else {
+        Some(input.to_string())
+    }
 }
 
 async fn get_guild_id(msg: &Message, ctx: &Context) -> Result<GuildId, &'static str> {
@@ -83,17 +88,6 @@ async fn get_guild_id(msg: &Message, ctx: &Context) -> Result<GuildId, &'static 
         .ok_or("Guild not found")
 }
 
-// async fn handle_track_end(ctx: &Context, guild_id: GuildId) {
-//     let manager = get_songbird_manager(ctx).await.unwrap();
-
-//     if let Some(handler_lock) = manager.get(guild_id) {
-//         let mut handler = handler_lock.lock().await;
-//         if handler.queue().is_empty() {
-//             leave();
-//         }
-//     }
-
-// }
 
 async fn join_channel_if_needed(ctx: &Context, msg: &Message) -> CommandResult {
     let (guild_id, channel_id) = {
@@ -154,14 +148,6 @@ async fn search_and_play_single_track(
     handler: &mut Call,
     query: &str,
 ) -> CommandResult {
-    let raw_search_output = TokioCommand::new("yt-dlp")
-        .args(["ytsearch", query])
-        .output()
-        .await;
-
-    let output_string = String::from_utf8(raw_search_output.unwrap().stdout);
-    let url = output_string.unwrap();
-
     let http_client = {
         let data = ctx.data.read().await;
         data.get::<HttpKey>()
@@ -169,36 +155,10 @@ async fn search_and_play_single_track(
         .expect("Should exist in typemap")
     };
 
-    YoutubeDl::new(&ctx.http, url);
+    let source = YoutubeDl::new_search(http_client, query.to_string());
+    let _ = handler.enqueue(source.into()).await;
 
-    let song = handler.enqueue(output_string);
-    let metadata = song.metadata();
-
-    let title = metadata
-        .title
-        .clone()
-        .unwrap_or_else(|| "Unknown title".to_string());
-    let artist = metadata
-        .artist
-        .clone()
-        .unwrap_or_else(|| "Unknown artist".to_string());
-    let thumbnail = metadata.thumbnail.clone().unwrap();
-
-    let queued_message = format!(
-        ":notes: **{}** by **{}** added to the queue!",
-        title, artist
-    );
-
-    msg.channel_id
-        .send_message(&ctx.http, |m| {
-            m.embed(|e| {
-                e.colour(0xffffff)
-                    .title(queued_message)
-                    .thumbnail(thumbnail)
-                    .timestamp(Timestamp::now())
-            })
-        })
-        .await?;
+    let _ = send_success_message(ctx, msg, &format!(":mag: Searching and queuing: **{}**", query)).await;
 
     Ok(())
 }
@@ -218,13 +178,13 @@ async fn play_playlist(
         Ok(output) => match String::from_utf8(output.stdout) {
             Ok(s) => s,
             Err(_) => {
-                send_error_message(&ctx.http, msg.channel_id, "Failed to parse playlist data")
+                send_error_message(&ctx, msg, "Failed to parse playlist data")
                     .await?;
                 return Ok(());
             }
         },
         Err(_) => {
-            send_error_message(&ctx.http, msg.channel_id, "Failed to retrieve playlist").await?;
+            send_error_message(&ctx, msg, "Failed to retrieve playlist").await?;
             return Ok(());
         }
     };
@@ -237,22 +197,22 @@ async fn play_playlist(
         .collect();
 
     if track_urls.is_empty() {
-        send_error_message(&ctx.http, msg.channel_id, "No tracks found in the playlist").await?;
+        send_error_message(&ctx, msg, "No tracks found in the playlist").await?;
         return Ok(());
     }
 
-    let mut track_errors = 0;
+    let http_client = {
+        let data = ctx.data.read().await;
+        data.get::<HttpKey>()
+        .cloned()
+        .expect("Should exist in typemap")
+    };
+
+    let track_errors = 0;
 
     for track_url in track_urls.iter().cloned() {
-        match Restartable::ytdl(track_url, true).await {
-            Ok(source) => {
-                handler.enqueue(source.into());
-            }
-            Err(why) => {
-                error!("Error starting source: {:?}", why);
-                track_errors += 1;
-            }
-        }
+        let track = YoutubeDl::new(http_client.clone(), track_url);
+        handler.enqueue(track.into()).await;
     }
 
     let queued_message = if track_errors == 0 {
@@ -268,15 +228,7 @@ async fn play_playlist(
         )
     };
 
-    msg.channel_id
-        .send_message(&ctx.http, |m| {
-            m.embed(|e| {
-                e.colour(0xffffff)
-                    .title(queued_message)
-                    .timestamp(Timestamp::now())
-            })
-        })
-        .await?;
+    let _ = send_success_message(ctx, msg, &queued_message).await;
 
     Ok(())
 }
@@ -289,47 +241,17 @@ async fn play_live_stream(
 ) -> CommandResult {
     let url = stream_url.to_string();
 
-    match Restartable::ytdl(url, true).await {
-        Ok(source) => {
-            let song = handler.enqueue(source.into());
-            let metadata = song.metadata();
+    let http_client = {
+        let data = ctx.data.read().await;
+        data.get::<HttpKey>()
+        .cloned()
+        .expect("Should exist in typemap")
+    };
 
-            let title = metadata
-                .title
-                .clone()
-                .unwrap_or_else(|| "Unknown title".to_string());
-            let artist = metadata
-                .artist
-                .clone()
-                .unwrap_or_else(|| "Unknown artist".to_string());
-            let thumbnail = metadata.thumbnail.clone().unwrap();
+    let source = YoutubeDl::new(http_client, url);
+    let _song = handler.enqueue(source.into()).await;
 
-            let queued_message = format!(
-                ":notes: **{}** by **{}** added to the queue!",
-                title, artist
-            );
-
-            msg.channel_id
-                .send_message(&ctx.http, |m| {
-                    m.embed(|e| {
-                        e.colour(0xffffff)
-                            .title(queued_message)
-                            .thumbnail(thumbnail)
-                            .timestamp(Timestamp::now())
-                    })
-                })
-                .await?;
-        }
-        Err(why) => {
-            error!("Error starting live stream source: {:?}", why);
-            send_error_message(
-                &ctx.http,
-                msg.channel_id,
-                "Error adding live stream to Queue",
-            )
-            .await?;
-        }
-    }
+    let _ = send_success_message(ctx, msg, ":notes: Live stream added to queue!").await;
 
     Ok(())
 }
@@ -342,44 +264,17 @@ async fn play_direct_link(
 ) -> CommandResult {
     let url = stream_url.to_string();
 
-    match Restartable::ytdl(url, true).await {
-        Ok(source) => {
-            let song = handler.enqueue_input(source.into());
-            let metadata = song.metadata();
+    let http_client = {
+        let data = ctx.data.read().await;
+        data.get::<HttpKey>()
+        .cloned()
+        .expect("Should exist in typemap")
+    };
 
-            let _ = song.add
+    let source = YoutubeDl::new(http_client, url);
+    let _song = handler.enqueue(source.into()).await;
 
-            let title = metadata
-                .title
-                .clone()
-                .unwrap_or_else(|| "Unknown".to_string());
-            let artist = metadata
-                .artist
-                .clone()
-                .unwrap_or_else(|| "Unknown".to_string());
-            let thumbnail = metadata.thumbnail.clone().unwrap();
-
-            let queued_message = format!(
-                ":notes: **{}** by **{}** added to the queue!",
-                title, artist
-            );
-
-            msg.channel_id
-                .send_message(&ctx.http, |m| {
-                    m.embed(|e| {
-                        e.colour(0xffffff)
-                            .title(queued_message)
-                            .thumbnail(thumbnail)
-                            .timestamp(Timestamp::now())
-                    })
-                })
-                .await?;
-        }
-        Err(why) => {
-            error!("Error starting source: {:?}", why);
-            send_error_message(&ctx.http, msg.channel_id, "Error adding song to Queue").await?;
-        }
-    }
+    let _ = send_success_message(ctx, msg, ":notes: Track added to queue!").await;
 
     Ok(())
 }

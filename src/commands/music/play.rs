@@ -32,7 +32,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         }
     };
 
-    let guild_id = match get_guild_id(msg, ctx).await {
+    let guild_id = match get_guild_id(msg, &ctx).await {
         Ok(id) => id,
         Err(_) => {
             send_error_message(&ctx, msg, "Guild not found").await?;
@@ -40,7 +40,7 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         }
     };
 
-    let manager = match songbird::get(ctx).await {
+    let manager = match songbird::get(&ctx).await {
         Some(manager) => manager,
         None => {
             send_error_message(&ctx, msg, "Songbird client missing").await?;
@@ -60,13 +60,13 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
         let mut handler = handler_lock.lock().await;
 
         if !url.starts_with("http") {
-            search_and_play_single_track(ctx, msg, &mut handler, &url).await?;
-        } else if url.contains("index") || url.contains("list") {
-            play_playlist(ctx, msg, &mut handler, &url).await?;
+            search_and_play_single_track(&ctx, msg, &mut handler, &url).await?;
+        } else if url.contains("index") {
+            play_playlist(&ctx, msg, &mut handler, &url).await?;
         } else if url.contains("live") {
-            play_live_stream(ctx, msg, &mut handler, &url).await?;
+            play_live_stream(&ctx, msg, &mut handler, &url).await?;
         } else {
-            play_direct_link(ctx, msg, &mut handler, &url).await?;
+            play_direct_link(&ctx, msg, &mut handler, &url).await?;
         }
     }
 
@@ -110,6 +110,10 @@ async fn join_channel_if_needed(ctx: &Context, msg: &Message) -> CommandResult {
         None => {
             check_msg(msg.reply(ctx, "Not in a voice channel").await);
 
+    let manager = match songbird::get(&ctx).await {
+        Some(manager) => manager,
+        None => {
+            send_error_message(&ctx.http, msg.channel_id, "Songbird client missing").await?;
             return Ok(());
         },
     };

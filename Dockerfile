@@ -1,29 +1,32 @@
 # syntax=docker/dockerfile:1.2
 # Builder stage
-FROM rust:1.74-alpine as builder
+FROM rust:latest as builder
 
-RUN apk add --no-cache \
-    alpine-sdk \
-    pkgconfig \
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    pkg-config \
     cmake \
-    openssl-dev \
-    musl-dev
+    libssl-dev \
+    perl \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY . .
 
-# Pre compile dependecies so that docker has a chance to cache?
-RUN mv src/main.rs src/lib.rs
-RUN cargo build --release --no-default-features
-RUN mv src/lib.rs src/main.rs
+# Remove lock file to regenerate with current Cargo version
+RUN rm -f Cargo.lock
 
-# Build the project itself
+# Build the project
 RUN cargo build --release --no-default-features
 
 # Runtime Stage
-FROM alpine:latest
+FROM debian:bookworm-slim
 
-RUN apk add --no-cache yt-dlp ffmpeg openssl
+RUN apt-get update && apt-get install -y \
+    yt-dlp \
+    ffmpeg \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=builder /app/target/release/rmusicbot .

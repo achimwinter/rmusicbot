@@ -1,3 +1,4 @@
+use serenity::builder::{CreateEmbed, CreateMessage};
 use serenity::framework::standard::macros::command;
 use serenity::framework::standard::{Args, CommandResult};
 use serenity::model::prelude::*;
@@ -20,16 +21,15 @@ pub async fn help(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult
     let menu_choice: &str = &menu_choice_str;
 
     msg.channel_id
-        .send_message(&ctx.http, |m| {
-            m.embed(|e| {
-                e.colour(0xffffff)
+        .send_message(&ctx.http, {
+            CreateMessage::default().add_embed(
+                CreateEmbed::default()
+                    .colour(0xffffff)
                     .title("**-- Help Menu --**")
                     .description(format!("Hi i'm RMusicBot. My prefix is `{}`", prefix))
                     .fields(match menu_choice {
                         "general" => {
-                            vec![
-                                ("help", "Displays this help menu", true),
-                            ]
+                            vec![("help", "Displays this help menu", true)]
                         }
 
                         "music" => {
@@ -53,8 +53,8 @@ pub async fn help(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult
                             ]
                         }
                     })
-                    .timestamp(Timestamp::now())
-            })
+                    .timestamp(Timestamp::now()),
+            )
         })
         .await?;
 

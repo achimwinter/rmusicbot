@@ -8,10 +8,11 @@ use crate::commands::utils::{send_error_message, send_success_message};
 #[command]
 #[only_in(guilds)]
 async fn resume(ctx: &Context, msg: &Message) -> CommandResult {
-    let guild_id = match msg.guild(&ctx.cache) {
-        Some(guild) => guild.id,
+    let guild_id = msg.guild(&ctx.cache).map(|g| g.id);
+    let guild_id = match guild_id {
+        Some(id) => id,
         None => {
-            send_error_message(&ctx.http, msg.channel_id, "Guild not found.").await?;
+            send_error_message(ctx, msg, "Guild not found.").await?;
             return Ok(());
         }
     };
@@ -19,7 +20,7 @@ async fn resume(ctx: &Context, msg: &Message) -> CommandResult {
     let manager = match songbird::get(ctx).await {
         Some(manager) => manager,
         None => {
-            send_error_message(&ctx.http, msg.channel_id, "Songbird client missing.").await?;
+            send_error_message(ctx, msg, "Songbird client missing.").await?;
             return Ok(());
         }
     };
@@ -29,9 +30,9 @@ async fn resume(ctx: &Context, msg: &Message) -> CommandResult {
         let queue = handler.queue();
         let _ = queue.resume();
 
-        send_success_message(&ctx.http, msg.channel_id, ":arrow_forward: Resumed!").await?;
+        send_success_message(ctx, msg, ":arrow_forward: Resumed!").await?;
     } else {
-        send_error_message(&ctx.http, msg.channel_id, "Not in a voice channel.").await?;
+        send_error_message(ctx, msg, "Not in a voice channel.").await?;
     }
 
     Ok(())

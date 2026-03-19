@@ -20,9 +20,10 @@ RUN cargo build --release --no-default-features
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
-    yt-dlp \
+    python3-pip \
     ffmpeg \
     ca-certificates \
+    && pip3 install --break-system-packages yt-dlp \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

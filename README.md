@@ -50,25 +50,16 @@ docker run -d \
 
 #### Docker Compose
 
-Create a `docker-compose.yml` file:
-
-```yaml
-version: '3.8'
-services:
-  rmusicbot:
-    build: .
-    container_name: rmusicbot
-    environment:
-      - DISCORD_TOKEN=your_token_here
-      - PREFIX=~
-      - DISCORD_STATUS=Music
-    restart: unless-stopped
-```
-
-Then run:
-
 ```bash
-docker-compose up -d
+# Copy and configure environment
+cp .env.example .env
+# Edit .env with your Discord token
+
+# Run
+docker compose up -d
+
+# View logs
+docker compose logs -f
 ```
 
 #### Build from Source

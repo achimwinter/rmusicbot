@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     pkg-config \
     cmake \
+    libopus-dev \
     libssl-dev \
     perl \
     && rm -rf /var/lib/apt/lists/*

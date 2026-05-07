@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.2
 # Builder stage
-FROM rust:1-bookworm as builder
+FROM rust:1.94-bookworm as builder
 
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -14,7 +14,6 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 COPY . .
 
-RUN rm -f Cargo.lock
 RUN cargo build --release --no-default-features
 
 # Runtime Stage

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.2
 # Builder stage
-FROM rust:1.94-bookworm as builder
+FROM rust:1.97.1-trixie as builder
 
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -17,7 +17,7 @@ COPY . .
 RUN cargo build --release --no-default-features
 
 # Runtime Stage
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 
 RUN apt-get update && apt-get install -y \
     python3-pip \

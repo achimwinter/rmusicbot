@@ -1,12 +1,9 @@
 use serenity::{
+    builder::{CreateEmbed, CreateMessage},
     client::Context,
-    framework::standard::{
-            macros::command,
-            CommandResult,
-        },
-    model::{channel::Message, Timestamp}, builder::{CreateMessage, CreateEmbed},
+    framework::standard::{macros::command, CommandResult},
+    model::{channel::Message, Timestamp},
 };
-
 
 #[command]
 #[only_in(guilds)]
@@ -46,8 +43,6 @@ async fn send_clear_message(
     let builder = CreateMessage::default().add_embed(embed);
 
     // Send the message
-    msg.channel_id
-        .send_message(&ctx.http, builder)
-        .await?;
+    msg.channel_id.send_message(&ctx.http, builder).await?;
     Ok(())
 }

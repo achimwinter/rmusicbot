@@ -1,6 +1,6 @@
-use serenity::model::channel::Message;
-use serenity::{framework::standard::macros::command, client::Context};
 use serenity::framework::standard::CommandResult;
+use serenity::model::channel::Message;
+use serenity::{client::Context, framework::standard::macros::command};
 
 use crate::commands::utils::{send_error_message, send_success_message};
 
@@ -19,12 +19,7 @@ async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
     let manager = match songbird::get(ctx).await {
         Some(manager) => manager,
         None => {
-            send_error_message(
-                ctx,
-                msg,
-                "Songbird Voice client not initialized.",
-            )
-            .await?;
+            send_error_message(ctx, msg, "Songbird Voice client not initialized.").await?;
             return Ok(());
         }
     };

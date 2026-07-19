@@ -31,9 +31,7 @@ async fn current(ctx: &Context, msg: &Message) -> CommandResult {
 
         match queue.current() {
             Some(current) => display_track_info(ctx, msg, &current).await?,
-            None => {
-                send_warning(ctx, msg, "Nothing is playing right now.").await?
-            }
+            None => send_warning(ctx, msg, "Nothing is playing right now.").await?,
         }
     } else {
         send_warning(ctx, msg, "Currently not in a voice channel.").await?;
@@ -42,11 +40,7 @@ async fn current(ctx: &Context, msg: &Message) -> CommandResult {
     Ok(())
 }
 
-async fn display_track_info(
-    ctx: &Context,
-    msg: &Message,
-    track: &TrackHandle,
-) -> CommandResult {
+async fn display_track_info(ctx: &Context, msg: &Message, track: &TrackHandle) -> CommandResult {
     let track_info = track.get_info().await.unwrap();
 
     let time_formatted = to_time(track_info.position.as_secs());

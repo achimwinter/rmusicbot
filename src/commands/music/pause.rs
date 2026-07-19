@@ -13,7 +13,7 @@ async fn pause(ctx: &Context, msg: &Message) -> CommandResult {
     let manager = match songbird::get(ctx).await {
         Some(m) => m,
         None => {
-            send_error_message(&ctx, msg, "Songbird client missing.").await?;
+            send_error_message(ctx, msg, "Songbird client missing.").await?;
             return Ok(());
         }
     };
@@ -24,17 +24,12 @@ async fn pause(ctx: &Context, msg: &Message) -> CommandResult {
 
         if let Err(e) = queue.pause() {
             println!("Error pausing track: {}", e);
-            send_error_message(&ctx, msg, "Error pausing track.").await?;
+            send_error_message(ctx, msg, "Error pausing track.").await?;
         } else {
-            send_success_message(&ctx, msg, ":pause_button: Paused!").await?;
+            send_success_message(ctx, msg, ":pause_button: Paused!").await?;
         }
     } else {
-        send_error_message(
-            &ctx,
-            msg,
-            "Currently not in a voice channel.",
-        )
-        .await?;
+        send_error_message(ctx, msg, "Currently not in a voice channel.").await?;
     }
 
     Ok(())

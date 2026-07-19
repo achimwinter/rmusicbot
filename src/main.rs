@@ -20,8 +20,8 @@ use tracing::{debug, info, instrument};
 use crate::commands::help::*;
 
 use crate::commands::music::clear::*;
-use crate::commands::music::leave::*;
 use crate::commands::music::current::*;
+use crate::commands::music::leave::*;
 use crate::commands::music::pause::*;
 use crate::commands::music::play::*;
 use crate::commands::music::resume::*;
@@ -108,8 +108,7 @@ async fn main() {
 
     tracing_subscriber::fmt::init();
 
-    let framework = StandardFramework::new()
-        .group(&GENERAL_GROUP);
+    let framework = StandardFramework::new().group(&GENERAL_GROUP);
     framework.configure(Configuration::new().prefix(prefix).owners(owners));
 
     let intents = GatewayIntents::non_privileged()
@@ -125,12 +124,13 @@ async fn main() {
         .await
         .expect("Err creating client");
 
-
     tokio::spawn(async move {
-        let _ = client.start().await.map_err(|why| println!("Client ended {:?}", why));
+        let _ = client
+            .start()
+            .await
+            .map_err(|why| println!("Client ended {:?}", why));
     });
 
     let _signal_err = tokio::signal::ctrl_c().await;
     println!("Received Ctrl-C, shutting down");
-
 }

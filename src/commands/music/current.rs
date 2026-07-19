@@ -1,26 +1,21 @@
-use serenity::builder::{CreateEmbed, CreateMessage};
-use serenity::framework::standard::macros::command;
-use serenity::framework::standard::CommandResult;
-use serenity::model::prelude::*;
-use serenity::model::Timestamp;
-use serenity::prelude::*;
+use poise::serenity_prelude::{CreateEmbed, Timestamp};
+use poise::CreateReply;
 use songbird::tracks::TrackHandle;
 
-use crate::commands::utils::{send_warning, to_time};
+use crate::commands::utils::{get_guild_id, send_warning, to_time};
+use crate::{CommandResult, Context};
 
-#[command]
-#[only_in(guilds)]
-async fn current(ctx: &Context, msg: &Message) -> CommandResult {
-    let guild_id = msg.guild(&ctx.cache).map(|g| g.id);
-    let guild_id = match guild_id {
-        Some(id) => id,
-        None => {
-            send_warning(ctx, msg, "Guild not found.").await?;
+#[poise::command(prefix_command, guild_only)]
+pub async fn current(ctx: Context<'_>) -> CommandResult {
+    let guild_id = match get_guild_id(ctx) {
+        Ok(id) => id,
+        Err(_) => {
+            send_warning(ctx, "Guild not found.").await?;
             return Ok(());
         }
     };
 
-    let songbird_client = songbird::get(ctx)
+    let songbird_client = songbird::get(ctx.serenity_context())
         .await
         .expect("Songbird Voice client placed in at initialisation.")
         .clone();
@@ -30,17 +25,17 @@ async fn current(ctx: &Context, msg: &Message) -> CommandResult {
         let queue = handler.queue();
 
         match queue.current() {
-            Some(current) => display_track_info(ctx, msg, &current).await?,
-            None => send_warning(ctx, msg, "Nothing is playing right now.").await?,
+            Some(current) => display_track_info(ctx, &current).await?,
+            None => send_warning(ctx, "Nothing is playing right now.").await?,
         }
     } else {
-        send_warning(ctx, msg, "Currently not in a voice channel.").await?;
+        send_warning(ctx, "Currently not in a voice channel.").await?;
     }
 
     Ok(())
 }
 
-async fn display_track_info(ctx: &Context, msg: &Message, track: &TrackHandle) -> CommandResult {
+async fn display_track_info(ctx: Context<'_>, track: &TrackHandle) -> CommandResult {
     let track_info = track.get_info().await.unwrap();
 
     let time_formatted = to_time(track_info.position.as_secs());
@@ -52,8 +47,7 @@ async fn display_track_info(ctx: &Context, msg: &Message, track: &TrackHandle) -
         .field("Status", format!("{:?}", track_info.playing), true)
         .timestamp(Timestamp::now());
 
-    let builder = CreateMessage::default().add_embed(embed);
-    msg.channel_id.send_message(&ctx.http, builder).await?;
+    ctx.send(CreateReply::default().embed(embed)).await?;
 
     Ok(())
 }

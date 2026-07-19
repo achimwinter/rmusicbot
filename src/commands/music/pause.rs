@@ -1,19 +1,14 @@
-use serenity::framework::standard::macros::command;
-use serenity::framework::standard::CommandResult;
-use serenity::model::prelude::*;
-use serenity::prelude::*;
+use crate::commands::utils::{get_guild_id, send_error_message, send_success_message};
+use crate::{CommandResult, Context};
 
-use crate::commands::utils::{get_guild_id_from_message, send_error_message, send_success_message};
+#[poise::command(prefix_command, guild_only)]
+pub async fn pause(ctx: Context<'_>) -> CommandResult {
+    let guild_id = get_guild_id(ctx)?;
 
-#[command]
-#[only_in(guilds)]
-async fn pause(ctx: &Context, msg: &Message) -> CommandResult {
-    let guild_id = get_guild_id_from_message(msg, ctx)?;
-
-    let manager = match songbird::get(ctx).await {
+    let manager = match songbird::get(ctx.serenity_context()).await {
         Some(m) => m,
         None => {
-            send_error_message(ctx, msg, "Songbird client missing.").await?;
+            send_error_message(ctx, "Songbird client missing.").await?;
             return Ok(());
         }
     };
@@ -24,12 +19,12 @@ async fn pause(ctx: &Context, msg: &Message) -> CommandResult {
 
         if let Err(e) = queue.pause() {
             println!("Error pausing track: {}", e);
-            send_error_message(ctx, msg, "Error pausing track.").await?;
+            send_error_message(ctx, "Error pausing track.").await?;
         } else {
-            send_success_message(ctx, msg, ":pause_button: Paused!").await?;
+            send_success_message(ctx, ":pause_button: Paused!").await?;
         }
     } else {
-        send_error_message(ctx, msg, "Currently not in a voice channel.").await?;
+        send_error_message(ctx, "Currently not in a voice channel.").await?;
     }
 
     Ok(())

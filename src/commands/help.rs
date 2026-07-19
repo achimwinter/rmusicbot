@@ -1,11 +1,9 @@
-use serenity::builder::{CreateEmbed, CreateMessage};
-use serenity::framework::standard::macros::command;
-use serenity::framework::standard::{Args, CommandResult};
-use serenity::model::prelude::*;
-use serenity::model::Timestamp;
-use serenity::prelude::*;
+use poise::serenity_prelude::{CreateEmbed, Timestamp};
+use poise::CreateReply;
 
 use std::env;
+
+use crate::{CommandResult, Context};
 
 // Custom help menu
 
@@ -41,34 +39,19 @@ fn help_fields(menu_choice: &str) -> Vec<(&'static str, &'static str, bool)> {
     }
 }
 
-/// Parses the requested menu choice from the command args, defaulting to
-/// "default" when no argument was supplied.
-fn parse_menu_choice(args: &mut Args) -> String {
-    match args.single::<String>() {
-        Ok(menu_choice) => menu_choice,
-        Err(_) => "default".to_string(),
-    }
-}
-
-#[command]
-pub async fn help(ctx: &Context, msg: &Message, mut args: Args) -> CommandResult {
+#[poise::command(prefix_command)]
+pub async fn help(ctx: Context<'_>, #[rest] menu_choice: Option<String>) -> CommandResult {
     let prefix = env::var("PREFIX").expect("Set your PREFIX environment variable!");
+    let menu_choice = menu_choice.unwrap_or_else(|| "default".to_string());
 
-    let menu_choice_str = parse_menu_choice(&mut args);
-    let menu_choice: &str = &menu_choice_str;
+    let embed = CreateEmbed::default()
+        .colour(0xffffff)
+        .title("**-- Help Menu --**")
+        .description(format!("Hi i'm RMusicBot. My prefix is `{}`", prefix))
+        .fields(help_fields(&menu_choice))
+        .timestamp(Timestamp::now());
 
-    msg.channel_id
-        .send_message(&ctx.http, {
-            CreateMessage::default().add_embed(
-                CreateEmbed::default()
-                    .colour(0xffffff)
-                    .title("**-- Help Menu --**")
-                    .description(format!("Hi i'm RMusicBot. My prefix is `{}`", prefix))
-                    .fields(help_fields(menu_choice))
-                    .timestamp(Timestamp::now()),
-            )
-        })
-        .await?;
+    ctx.send(CreateReply::default().embed(embed)).await?;
 
     Ok(())
 }
@@ -96,17 +79,5 @@ mod tests {
         let fields = help_fields("default");
         assert_eq!(fields, help_fields("anything-else"));
         assert_eq!(fields.len(), 3);
-    }
-
-    #[test]
-    fn parse_menu_choice_defaults_when_no_args() {
-        let mut args = Args::new("", &[]);
-        assert_eq!(parse_menu_choice(&mut args), "default");
-    }
-
-    #[test]
-    fn parse_menu_choice_reads_first_argument() {
-        let mut args = Args::new("music", &[]);
-        assert_eq!(parse_menu_choice(&mut args), "music");
     }
 }

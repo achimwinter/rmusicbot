@@ -1,25 +1,20 @@
-use serenity::framework::standard::CommandResult;
-use serenity::model::channel::Message;
-use serenity::{client::Context, framework::standard::macros::command};
+use crate::commands::utils::{get_guild_id, send_error_message, send_success_message};
+use crate::{CommandResult, Context};
 
-use crate::commands::utils::{send_error_message, send_success_message};
-
-#[command]
-#[only_in(guilds)]
-async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
-    let guild_id = msg.guild(&ctx.cache).map(|g| g.id);
-    let guild_id = match guild_id {
-        Some(id) => id,
-        None => {
-            send_error_message(ctx, msg, "Guild not found.").await?;
+#[poise::command(prefix_command, guild_only)]
+pub async fn stop(ctx: Context<'_>) -> CommandResult {
+    let guild_id = match get_guild_id(ctx) {
+        Ok(id) => id,
+        Err(_) => {
+            send_error_message(ctx, "Guild not found.").await?;
             return Ok(());
         }
     };
 
-    let manager = match songbird::get(ctx).await {
+    let manager = match songbird::get(ctx.serenity_context()).await {
         Some(manager) => manager,
         None => {
-            send_error_message(ctx, msg, "Songbird Voice client not initialized.").await?;
+            send_error_message(ctx, "Songbird Voice client not initialized.").await?;
             return Ok(());
         }
     };
@@ -29,9 +24,9 @@ async fn stop(ctx: &Context, msg: &Message) -> CommandResult {
         let queue = handler.queue();
         queue.stop();
 
-        send_success_message(ctx, msg, ":stop_button: Playlist stopped!").await?;
+        send_success_message(ctx, ":stop_button: Playlist stopped!").await?;
     } else {
-        send_error_message(ctx, msg, "Not in a voice channel.").await?;
+        send_error_message(ctx, "Not in a voice channel.").await?;
     }
 
     Ok(())

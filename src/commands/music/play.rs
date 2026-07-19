@@ -1,8 +1,5 @@
+use poise::serenity_prelude::{self as serenity, GuildId};
 use regex::Regex;
-use serenity::framework::standard::macros::command;
-use serenity::framework::standard::{Args, CommandResult};
-use serenity::model::prelude::*;
-use serenity::{async_trait, prelude::*};
 use std::sync::Arc;
 
 use songbird::events::{Event, EventHandler as VoiceEventHandler};
@@ -12,61 +9,54 @@ use tokio::process::Command as TokioCommand;
 use tokio::time::{timeout, Duration};
 use tracing::{debug, info, warn};
 
-use crate::commands::utils::{send_error_message, send_success_message};
-use crate::HttpKey;
+use crate::commands::utils::{get_guild_id, send_error_message, send_success_message};
+use crate::{CommandResult, Context};
 
-#[command]
-#[aliases(p)]
-#[only_in(guilds)]
-async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
+#[poise::command(prefix_command, aliases("p"), guild_only)]
+pub async fn play(ctx: Context<'_>, #[rest] query: Option<String>) -> CommandResult {
     debug!(
         "play: Command invoked by {} with args: {:?}",
-        msg.author.name,
-        args.rest()
+        ctx.author().name,
+        query
     );
 
-    let url = match get_url_from_args(&args) {
+    let url = match normalize_query(query) {
         Some(url) => url,
         None => {
-            send_error_message(
-                ctx,
-                msg,
-                "Use the command like this: play <url> or <song name>",
-            )
-            .await?;
+            send_error_message(ctx, "Use the command like this: play <url> or <song name>").await?;
             return Ok(());
         }
     };
 
     debug!("play: URL/Query: {}", url);
 
-    let guild_id = match get_guild_id(msg, ctx).await {
+    let guild_id = match get_guild_id(ctx) {
         Ok(id) => {
             debug!("play: Guild ID obtained: {:?}", id);
             id
         }
         Err(_) => {
-            send_error_message(ctx, msg, "Guild not found").await?;
+            send_error_message(ctx, "Guild not found").await?;
             return Ok(());
         }
     };
 
-    let manager = match songbird::get(ctx).await {
+    let manager = match songbird::get(ctx.serenity_context()).await {
         Some(manager) => {
             debug!("play: Songbird manager obtained");
             manager
         }
         None => {
-            send_error_message(ctx, msg, "Songbird client missing").await?;
+            send_error_message(ctx, "Songbird client missing").await?;
             return Ok(());
         }
     };
 
     if manager.get(guild_id).is_none() {
         info!("play: Not connected to voice channel yet, attempting to join...");
-        if let Err(err_msg) = join_channel_if_needed(ctx, msg).await {
+        if let Err(err_msg) = join_channel_if_needed(ctx).await {
             warn!("play: Failed to join voice channel: {}", err_msg);
-            send_error_message(ctx, msg, &err_msg).await?;
+            send_error_message(ctx, &err_msg).await?;
             return Ok(());
         }
         info!("play: Successfully joined voice channel");
@@ -86,7 +76,6 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
             );
             send_error_message(
                 ctx,
-                msg,
                 "Failed to connect to the voice channel. Check voice permissions and try again.",
             )
             .await?;
@@ -100,33 +89,35 @@ async fn play(ctx: &Context, msg: &Message, args: Args) -> CommandResult {
     match classify_url(&url) {
         UrlKind::Search => {
             info!("play: Searching for track: {}", url);
-            search_and_play_single_track(ctx, msg, &mut handler, &url).await?;
+            search_and_play_single_track(ctx, &mut handler, &url).await?;
         }
         UrlKind::Playlist => {
             info!("play: Playing playlist: {}", url);
-            play_playlist(ctx, msg, &mut handler, &url).await?;
+            play_playlist(ctx, &mut handler, &url).await?;
         }
         UrlKind::Live => {
             info!("play: Playing live stream: {}", url);
-            play_live_stream(ctx, msg, &mut handler, &url).await?;
+            play_live_stream(ctx, &mut handler, &url).await?;
         }
         UrlKind::Direct => {
             info!("play: Playing direct link: {}", url);
-            play_direct_link(ctx, msg, &mut handler, &url).await?;
+            play_direct_link(ctx, &mut handler, &url).await?;
         }
     }
 
     Ok(())
 }
 
-fn get_url_from_args(args: &Args) -> Option<String> {
-    let input = args.rest().trim();
-    if input.is_empty() {
-        debug!("get_url_from_args: No arguments provided");
+/// Trims the supplied query and returns `None` when it is absent or empty.
+fn normalize_query(query: Option<String>) -> Option<String> {
+    let input = query?;
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        debug!("normalize_query: No arguments provided");
         None
     } else {
-        debug!("get_url_from_args: Input received: {}", input);
-        Some(input.to_string())
+        debug!("normalize_query: Input received: {}", trimmed);
+        Some(trimmed.to_string())
     }
 }
 
@@ -150,37 +141,30 @@ fn classify_url(url: &str) -> UrlKind {
     }
 }
 
-async fn get_guild_id(msg: &Message, ctx: &Context) -> Result<GuildId, &'static str> {
-    msg.guild(&ctx.cache)
-        .map(|guild| {
-            debug!("get_guild_id: Found guild: {}", guild.name);
-            guild.id
-        })
-        .ok_or("Guild not found")
-}
+async fn join_channel_if_needed(ctx: Context<'_>) -> Result<(), String> {
+    let author_name = ctx.author().name.clone();
+    debug!("join_channel_if_needed: Started for user {}", author_name);
 
-async fn join_channel_if_needed(ctx: &Context, msg: &Message) -> Result<(), String> {
-    debug!(
-        "join_channel_if_needed: Started for user {}",
-        msg.author.name
-    );
+    let guild_id = ctx.guild_id().ok_or("Guild not found".to_string())?;
+    let author_id = ctx.author().id;
 
-    let (guild_id, channel_id) = {
-        let guild = msg.guild(&ctx.cache).unwrap();
-        let channel_id = guild
-            .voice_states
-            .get(&msg.author.id)
-            .and_then(|voice_state| voice_state.channel_id);
-
-        (guild.id, channel_id)
-    };
+    let channel_id = ctx
+        .serenity_context()
+        .cache
+        .guild(guild_id)
+        .and_then(|guild| {
+            guild
+                .voice_states
+                .get(&author_id)
+                .and_then(|vs| vs.channel_id)
+        });
 
     debug!(
         "join_channel_if_needed: Guild ID: {:?}, Channel ID: {:?}",
         guild_id, channel_id
     );
 
-    let manager = songbird::get(ctx)
+    let manager = songbird::get(ctx.serenity_context())
         .await
         .expect("Songbird Voice client placed in at initialisation.")
         .clone();
@@ -193,7 +177,7 @@ async fn join_channel_if_needed(ctx: &Context, msg: &Message) -> Result<(), Stri
         None => {
             warn!(
                 "join_channel_if_needed: User {} is not in any voice channel",
-                msg.author.name
+                author_name
             );
             return Err("You must join a voice channel first.".to_string());
         }
@@ -271,7 +255,7 @@ struct QueueEndNotifier {
     guild_id: GuildId,
 }
 
-#[async_trait]
+#[serenity::async_trait]
 impl VoiceEventHandler for TrackErrorNotifier {
     async fn act(&self, ctx: &EventContext<'_>) -> Option<Event> {
         if let EventContext::Track(track_list) = ctx {
@@ -288,7 +272,7 @@ impl VoiceEventHandler for TrackErrorNotifier {
     }
 }
 
-#[async_trait]
+#[serenity::async_trait]
 impl VoiceEventHandler for QueueEndNotifier {
     async fn act(&self, _: &EventContext<'_>) -> Option<Event> {
         if let Some(handler_lock) = self.manager.get(self.guild_id) {
@@ -316,19 +300,13 @@ impl VoiceEventHandler for QueueEndNotifier {
 }
 
 async fn search_and_play_single_track(
-    ctx: &Context,
-    msg: &Message,
+    ctx: Context<'_>,
     handler: &mut Call,
     query: &str,
 ) -> CommandResult {
     debug!("search_and_play_single_track: Searching for '{}'", query);
 
-    let http_client = {
-        let data = ctx.data.read().await;
-        data.get::<HttpKey>()
-            .cloned()
-            .expect("Should exist in typemap")
-    };
+    let http_client = ctx.data().http.clone();
 
     let source = YoutubeDl::new_search(http_client, query.to_string());
     handler.enqueue(source.into()).await;
@@ -337,22 +315,12 @@ async fn search_and_play_single_track(
         query
     );
 
-    let _ = send_success_message(
-        ctx,
-        msg,
-        &format!(":mag: Searching and queuing: **{}**", query),
-    )
-    .await;
+    let _ = send_success_message(ctx, &format!(":mag: Searching and queuing: **{}**", query)).await;
 
     Ok(())
 }
 
-async fn play_playlist(
-    ctx: &Context,
-    msg: &Message,
-    handler: &mut Call,
-    playlist_url: &str,
-) -> CommandResult {
+async fn play_playlist(ctx: Context<'_>, handler: &mut Call, playlist_url: &str) -> CommandResult {
     info!("play_playlist: Processing playlist: {}", playlist_url);
     debug!("play_playlist: Running yt-dlp command");
 
@@ -372,13 +340,13 @@ async fn play_playlist(
             }
             Err(_) => {
                 warn!("play_playlist: Failed to parse yt-dlp output as UTF-8");
-                send_error_message(ctx, msg, "Failed to parse playlist data").await?;
+                send_error_message(ctx, "Failed to parse playlist data").await?;
                 return Ok(());
             }
         },
         Err(e) => {
             warn!("play_playlist: yt-dlp command failed: {}", e);
-            send_error_message(ctx, msg, "Failed to retrieve playlist").await?;
+            send_error_message(ctx, "Failed to retrieve playlist").await?;
             return Ok(());
         }
     };
@@ -390,7 +358,7 @@ async fn play_playlist(
             "play_playlist: No tracks found in playlist: {}",
             playlist_url
         );
-        send_error_message(ctx, msg, "No tracks found in the playlist").await?;
+        send_error_message(ctx, "No tracks found in the playlist").await?;
         return Ok(());
     }
 
@@ -399,12 +367,7 @@ async fn play_playlist(
         track_urls.len()
     );
 
-    let http_client = {
-        let data = ctx.data.read().await;
-        data.get::<HttpKey>()
-            .cloned()
-            .expect("Should exist in typemap")
-    };
+    let http_client = ctx.data().http.clone();
 
     let track_errors = 0;
 
@@ -436,59 +399,39 @@ async fn play_playlist(
         track_urls.len(),
         track_errors
     );
-    let _ = send_success_message(ctx, msg, &queued_message).await;
+    let _ = send_success_message(ctx, &queued_message).await;
 
     Ok(())
 }
 
-async fn play_live_stream(
-    ctx: &Context,
-    msg: &Message,
-    handler: &mut Call,
-    stream_url: &str,
-) -> CommandResult {
+async fn play_live_stream(ctx: Context<'_>, handler: &mut Call, stream_url: &str) -> CommandResult {
     debug!("play_live_stream: Processing stream: {}", stream_url);
 
     let url = stream_url.to_string();
 
-    let http_client = {
-        let data = ctx.data.read().await;
-        data.get::<HttpKey>()
-            .cloned()
-            .expect("Should exist in typemap")
-    };
+    let http_client = ctx.data().http.clone();
 
     let source = YoutubeDl::new(http_client, url);
     handler.enqueue(source.into()).await;
     info!("play_live_stream: Enqueued live stream");
 
-    let _ = send_success_message(ctx, msg, ":notes: Live stream added to queue!").await;
+    let _ = send_success_message(ctx, ":notes: Live stream added to queue!").await;
 
     Ok(())
 }
 
-async fn play_direct_link(
-    ctx: &Context,
-    msg: &Message,
-    handler: &mut Call,
-    stream_url: &str,
-) -> CommandResult {
+async fn play_direct_link(ctx: Context<'_>, handler: &mut Call, stream_url: &str) -> CommandResult {
     debug!("play_direct_link: Processing direct link: {}", stream_url);
 
     let url = stream_url.to_string();
 
-    let http_client = {
-        let data = ctx.data.read().await;
-        data.get::<HttpKey>()
-            .cloned()
-            .expect("Should exist in typemap")
-    };
+    let http_client = ctx.data().http.clone();
 
     let source = YoutubeDl::new(http_client, url);
     handler.enqueue(source.into()).await;
     info!("play_direct_link: Enqueued track from direct link");
 
-    let _ = send_success_message(ctx, msg, ":notes: Track added to queue!").await;
+    let _ = send_success_message(ctx, ":notes: Track added to queue!").await;
 
     Ok(())
 }
@@ -557,14 +500,20 @@ mod tests {
     }
 
     #[test]
-    fn get_url_from_args_trims_and_returns_none_for_empty_input() {
-        let args = Args::new("   ", &[]);
-        assert_eq!(get_url_from_args(&args), None);
+    fn normalize_query_returns_none_for_missing_input() {
+        assert_eq!(normalize_query(None), None);
     }
 
     #[test]
-    fn get_url_from_args_returns_trimmed_input() {
-        let args = Args::new("  some song name  ", &[]);
-        assert_eq!(get_url_from_args(&args), Some("some song name".to_string()));
+    fn normalize_query_returns_none_for_blank_input() {
+        assert_eq!(normalize_query(Some("   ".to_string())), None);
+    }
+
+    #[test]
+    fn normalize_query_returns_trimmed_input() {
+        assert_eq!(
+            normalize_query(Some("  some song name  ".to_string())),
+            Some("some song name".to_string())
+        );
     }
 }

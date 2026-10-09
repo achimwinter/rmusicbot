@@ -33,7 +33,7 @@ pub type CommandResult = Result<(), Error>;
 
 #[cfg(feature = "development")]
 fn init_env() {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
     println!("Running in development mode. Dotenv loaded.");
 }
 

@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 reqwest = { version = "0.12" }
-dotenv = { version = "0.15.0", optional = true } 
+dotenvy = { version = "0.15.7", optional = true }
 serenity = { version = "0.12.5", features = ["client", "voice", "cache"] }
 tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1.44"
@@ -22,4 +22,4 @@ poise = "0.6.2"
 
 [features]
 default = ["development"]
-development = ["dotenv"]
+development = ["dotenvy"]
